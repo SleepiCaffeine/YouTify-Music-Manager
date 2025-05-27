@@ -66,7 +66,7 @@ class DownloadTracker:
   def __str__(self):
     match self.status:
       case "downloading":
-        return f"[{self.percent:.2f}%] {self.filename} | Speed: {self.speed or 'N/A'} | ETA: {self.eta or 'N/A'}"
+        return f"[{self.percent:.2f}%] {self.filename} | Speed: {self.speed:.2f or 'N/A'} | ETA: {self.eta or 'N/A'}"
       case "finished":
         return f"[100%] {self.filename} - Download complete!"
       case "error":
@@ -78,7 +78,7 @@ class DownloadTracker:
 Creates, and returns a progress hook to pass into yt_dpl
 progress_callback : Function to call with this DownloadProgress object at the end of the function
 """
-def create_progress_hook(self, progress_callback : Optional[Callable] = None):
+def create_progress_hook(progress_callback : Optional[Callable] = None):
   
   progress_object = None
   
@@ -156,7 +156,7 @@ async def download_yt_video_with_hook(URL : str, output_dir : str = output_dir, 
       try:
         error_code = ydl.download([url])
         tracker = None
-        
+
         if phook.__closure__ == None:
           tracker = DownloadTracker(URL)
           tracker.status = 'finished'
