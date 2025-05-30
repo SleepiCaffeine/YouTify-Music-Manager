@@ -180,13 +180,25 @@ async def download_yt_video_with_hook(url: str, output_dir: str, progress_callba
     os.makedirs(output_dir, exist_ok=True)
 
     ydl_opts = {
-    'format': 'mp3/bestaudio/best',
+    'format': 'wav/bestaudio/best',
     'extractaudio': True,
       'postprocessors': [{
           'key': 'FFmpegExtractAudio',
-          'preferredcodec': 'mp3',  # EDITABLE
-          'preferredquality': '192' # EDITABLE
-    }],
+          'preferredcodec': 'wav',   # EDITABLE
+          'preferredquality': '192', # EDITABLE        
+      },
+      {
+        'key': 'FFmpegVideoConvertor',
+        'preferedformat': 'wav',
+      }
+      ],
+      # Trying to strongarm a palletable format so QtMediaOutput doesn't shit itself
+      'postprocessor_args': [
+        '-ar', '48000',      # Sample rate: 48kHz
+        '-ac', '2',          # Channels: stereo
+        '-sample_fmt', 's16' # Sample format: 16-bit signed integer
+      ],
+
       'progress_hooks' : [progress_hook],
       "quiet" : True,
       "no_warnings" : True,
