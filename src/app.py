@@ -24,12 +24,13 @@ import PySide6.QtAsyncio as QtAsyncio
 import sys, random, os, asyncio
 from main import download_yt_video_with_hook, DownloadTracker
 
-import AudioFile
+import utility as util
+from PlaylistElement import (PlayListContainer, PlaylistElement)
 
 
 CURRENT_PATH         = os.path.dirname(os.path.realpath(__file__))
 # Add a way to change this
-AUDIO_DOWNLOADS_PATH = os.path.join(CURRENT_PATH, '..', 'audio-downloads\\') 
+AUDIO_DOWNLOADS_PATH = os.path.join(os.path.split(CURRENT_PATH)[0],  'audio-downloads\\') 
 
 
 class YoutubeDownloadWidget(QWidget):
@@ -166,68 +167,52 @@ class AudioPlayer(QWidget):
         # Initialize the media playback stuff
         self._audio_output = QAudioOutput()
         self._player       = QMediaPlayer()
+        self._curr_path : str = ""
         self._player.setAudioOutput(self._audio_output)
-        self._playlist : list[str | QUrl] = []
-        self._current_index = 0
-
-    
-    def set_playlist_index(self, idx : int):
-        if not (idx > 0) or not (idx < len(self._playlist)):
-            self._current_index = idx
-        else:
-            raise Exception("Tried to change playlist index to out of bounds!")
+        
+    @Slot()
+    def set_source(self, path : str):
+        if self._curr_path != path and os.path.exists(path) :
+            self._player.stop()
+            self._player.setSource(path)
+            self._curr_path = path
 
     @Slot()
     def play_song(self):
-        # Bounds check:
-        if self._current_index < 0 or self._current_index >= len(self._playlist):
-            raise Exception("Playlist index out of range!")
-        
-        # If it wasn't paused, that means it's either already playing or had been stopped previously
-        if self._player.playbackState() != QMediaPlayer.PlaybackState.PausedState:
-            self._player.setSource( self._playlist[self._current_index] )
-        
         self._player.play()
 
     @Slot()
     def pause_song(self):
         self._player.pause()
 
-    
-    def append_to_playlist(self, url : str | QUrl):
-        self._playlist.append(url)
-
-
 
 class UIContainer(QWidget):
     def __init__(self, parent : MainApplication):
         super().__init__()
+        
+        list_of_songs = [os.path.join(AUDIO_DOWNLOADS_PATH, x).replace('\\\\', '/').replace('\\', '/') for x in util.get_audio_file_names(AUDIO_DOWNLOADS_PATH)]
+        
+        self._playlist_container = PlayListContainer(list_of_songs)
+        self._playlist_container._selected_song.connect(self._play_song)
 
         # Ways to interact with the Audio Player
         self._audio_play_btn = QPushButton()
         self._audio_play_btn.setText("Play!")
         self._audio_play_btn.clicked.connect(parent.handlePlayButtonClick)
 
-        self._audio_select_btn = QPushButton()
-        self._audio_select_btn.setText("Select a song")
-        self._audio_select_btn.clicked.connect(self._select_song)
-
-        self._audio_btn_lay = QHBoxLayout()
-        self._audio_btn_lay.addWidget(self._audio_play_btn)
-        self._audio_btn_lay.addWidget(self._audio_select_btn)
-
         # Youtube downloader shenanigans
         self._yt_downloader = YoutubeDownloadWidget()
 
         # General layout
-        layout = QVBoxLayout(self)
-        layout.addWidget(self._yt_downloader)
-        layout.addLayout(self._audio_btn_lay)
+        layout = QHBoxLayout(self)
+        layout.addWidget(self._playlist_container)
+        
+        #layout.addWidget(self._yt_downloader)
+        #layout.addLayout(self._audio_btn_lay)
 
-    
-    def _select_song(self):
-        # Just use a pre-exiting method
-        self.parent().open()
+    @Slot(str)
+    def _play_song(self, path : str):
+        self.parent().handlePlayButtonClick(path)
 
 
 class MainApplication(QMainWindow):
@@ -252,11 +237,18 @@ class MainApplication(QMainWindow):
         self._ensure_stopped()
         event.accept()
 
-    def handlePlayButtonClick(self):
-        if self._audio_player._player.playbackState() != QMediaPlayer.PlaybackState.PlayingState:
-            self._audio_player.play_song()
-        else:
+    def handlePlayButtonClick(self, path : str):
+
+        if self._audio_player._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             self._audio_player.pause_song()
+        else:
+            self._audio_player.set_source(path)
+            self._audio_player.play_song() 
+    
+                    
+    
+    def set_audio_source(self, path : str):
+        self._audio_player.set_source(path)
 
     @Slot()
     def _ensure_stopped(self):
@@ -271,9 +263,8 @@ class MainApplication(QMainWindow):
 
         file_dialog.setDirectory( AUDIO_DOWNLOADS_PATH )
         if file_dialog.exec() == QDialog.DialogCode.Accepted:
-            url = file_dialog.selectedUrls()[0]
-            self._audio_player.append_to_playlist(url)
-            self._audio_player.set_playlist_index(len(self._audio_player._playlist) - 1)
+            url = file_dialog.selectedUrls()[0].toLocalFile()
+            self._audio_player.set_source(url)
 
 
 if __name__ == "__main__":

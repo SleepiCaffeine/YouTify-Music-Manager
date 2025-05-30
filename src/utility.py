@@ -34,4 +34,4 @@ def get_audio_file_names(dir : str) -> list[str]:
 
 def ms_to_text(ms : int) -> str:
   seconds = ms // 1000
-  return f"{(seconds / 60):2}:{(seconds % 60):2}"
+  return f"{(seconds // 60):2}:{(seconds % 60):2}"
