@@ -78,10 +78,7 @@ class PlayListContainer(QFrame):
     self._playlist_layout = QVBoxLayout()
 
     for idx, path in enumerate(list_of_paths):
-      self._playlist.append( PlaylistElement(path, idx) )
-      self._playlist[-1].connect_play_button(self.select_index)
-      self._playlist_layout.addWidget( self._playlist[-1] )
-      self._playlist_layout.addSpacing(5)
+      self.add_element(path, idx)
 
 
     general_layout = QVBoxLayout(self)
@@ -99,8 +96,46 @@ class PlayListContainer(QFrame):
     return self._playlist[self._current_index]._song_name
   def get_current_song_path(self):
     return self._playlist[self._current_index]._song_path
+  
+  def add_element(self, path : str = "", idx : int = -1):
+    self._playlist.append( PlaylistElement(path, idx if idx != -1 else len(self._playlist) ) )
+    self._playlist[-1].connect_play_button(self.select_index)
+    self._playlist_layout.addWidget( self._playlist[-1] )
+    self._playlist_layout.addSpacing(5)
+    self.update()
 
 
+
+  def _delete_layout_elements(self):
+    for i in range(self._playlist_layout.count()):
+      try:
+        # For whatever reason, deleting elements like the spec says doesn't work
+        # It only results in the objects being misaligned, and doesn't even remove
+        # all of them. Anyway, this is a miserable, but working solution for the time being
+        self._playlist_layout.takeAt(i).widget().deleteLater()
+      except Exception as e:
+        pass
+    
+  def _delete_elements(self):
+    if len(self._playlist) > 0:
+      for i in range(len(self._playlist), 0, -1):
+        self._playlist[i-1].deleteLater()
+    self._playlist = []
+
+
+
+
+  def refresh_playlist_elements(self, audio_dir : str = ""):
+    if not os.path.exists(audio_dir):
+      raise Exception("Audio path does not exist!")
+    
+    self._delete_layout_elements()
+    self._delete_elements()
+
+    for file in os.listdir(audio_dir):
+      filename = os.fsdecode(file)
+      self.add_element(os.path.join(audio_dir, filename))
+      
 
 
     
@@ -114,7 +149,8 @@ class PlayListContainer(QFrame):
 # Multiple playlist elements make up a Playlist UI
 class PlaylistElement(QFrame):
   
-  _clicked_signal = Signal(int, name="Mouse Click")
+  _clicked_signal      = Signal(int, name="Mouse Click")
+  _play_clicked_signal = Signal(int, str)
   
   def __init__(self, path : str="", idx : int= 0):
     super().__init__()
@@ -165,6 +201,8 @@ class PlaylistElement(QFrame):
     self._play_btn.setText("Play")
     self._remove_from_playlist_btn.setText("Remove")
     self._other_options_btn.setText("More")
+
+    self._play_btn.clicked.connect(self.on_play_btn_click)
 
     # Button Layout
     self._button_layout.addWidget(self._play_btn)
@@ -242,8 +280,12 @@ class PlaylistElement(QFrame):
     pass
 
   @Slot()
+  def on_play_btn_click(self):
+    self._play_clicked_signal.emit(self._my_index, self._song_path)
+  
+  @Slot()
   def connect_play_button(self, function : Callable):
-    self._play_btn.clicked.connect(function)
+    self._play_clicked_signal.connect(function)
 
   @Slot()
   def connect_remove_from_playlist_button(self, function : Callable):

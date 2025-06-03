@@ -35,8 +35,8 @@ AUDIO_DOWNLOADS_PATH = os.path.join(os.path.split(CURRENT_PATH)[0],  'audio-down
 
 class YoutubeDownloadWidget(QWidget):
 
-    progress_updated = Signal(object)
-    
+    progress_updated_signal   = Signal(object)
+    download_completed_signal = Signal()
     def __init__(self):
         super().__init__()
 
@@ -57,7 +57,7 @@ class YoutubeDownloadWidget(QWidget):
         self.yt_text_input.setPlaceholderText("Enter in a valid Youtube URL")
 
         
-        self.progress_updated.connect(self.update_progress_display)
+        self.progress_updated_signal.connect(self.update_progress_display)
         self.progress_bar = self.create_progress_bar()
         self.progress_bar.setVisible(False)
         
@@ -159,6 +159,8 @@ class YoutubeDownloadWidget(QWidget):
             self.current_download_task = None
             # Keep progress bar visible to show final result
             QTimer.singleShot(3000, lambda: self.progress_bar.setVisible(False))  # Hide after 3 seconds
+            # Emit signal to inform that a download is done
+            self.download_completed_signal.emit()
 
 
 class AudioPlayer(QWidget):
@@ -185,8 +187,17 @@ class AudioPlayer(QWidget):
     def pause_song(self):
         self._player.pause()
 
+    @Slot()
+    def _ensure_stopped(self):
+        if self._player.playbackState() != QMediaPlayer.PlaybackState.StoppedState:
+            self._player.stop()
+
 
 class UIContainer(QWidget):
+
+    _play_song_signal = Signal(str)
+    
+
     def __init__(self, parent : MainApplication):
         super().__init__()
         
@@ -202,17 +213,27 @@ class UIContainer(QWidget):
 
         # Youtube downloader shenanigans
         self._yt_downloader = YoutubeDownloadWidget()
+        self._yt_downloader.download_completed_signal.connect(self._refresh_playlist)
+
+        self._refresh_btn = QPushButton()
+        self._refresh_btn.clicked.connect(self._refresh_playlist)
+        self._refresh_btn.setText("Refresh")
 
         # General layout
         layout = QHBoxLayout(self)
         layout.addWidget(self._playlist_container)
         
-        #layout.addWidget(self._yt_downloader)
-        #layout.addLayout(self._audio_btn_lay)
+        layout.addWidget(self._yt_downloader)
+        layout.addWidget(self._refresh_btn)
 
     @Slot(str)
     def _play_song(self, path : str):
-        self.parent().handlePlayButtonClick(path)
+        print(f"Playing: {path}")
+        self._play_song_signal.emit(path)
+
+
+    def _refresh_playlist(self):
+        self._playlist_container.refresh_playlist_elements(AUDIO_DOWNLOADS_PATH)
 
 
 class MainApplication(QMainWindow):
@@ -221,8 +242,8 @@ class MainApplication(QMainWindow):
 
         self._audio_player = AudioPlayer()
         
-
         self._ui_container = UIContainer(self)
+        self._ui_container._play_song_signal.connect(self.handlePlayButtonClick)
         self.setCentralWidget(self._ui_container)
 
         icon = QIcon.fromTheme(QIcon.ThemeIcon.DocumentOpen)
@@ -234,31 +255,40 @@ class MainApplication(QMainWindow):
         file_menu.addAction(open_action)
 
     def closeEvent(self, event):
-        self._ensure_stopped()
+        self._audio_player._ensure_stopped()
         event.accept()
 
     def handlePlayButtonClick(self, path : str):
+        # There are 3 possible states:
+        # 1. The player is stopped (No song/Finished previous)
+        # 2. It is paused
+        # 3. It is playing
 
-        if self._audio_player._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
-            self._audio_player.pause_song()
+        # If the user is attempting to play a song with the same path as the current one,
+        # This means that they're trying to either pause or unpause the song.
+
+        if self._audio_player._curr_path == path:
+            if self._audio_player._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+                self._audio_player.pause_song()
+            else:
+                self._audio_player.play_song()
+        
+        # Otherwise, they're trying to play something else.
+
         else:
+            self._audio_player._ensure_stopped()
             self._audio_player.set_source(path)
-            self._audio_player.play_song() 
-    
+            self._audio_player.play_song()
+        
                     
     
     def set_audio_source(self, path : str):
         self._audio_player.set_source(path)
-
-    @Slot()
-    def _ensure_stopped(self):
-        if self._audio_player._player.playbackState() != QMediaPlayer.PlaybackState.StoppedState:
-            self._audio_player._player.stop()
     
 
     @Slot()
     def open(self):
-        self._ensure_stopped()
+        self._audio_player._ensure_stopped()
         file_dialog = QFileDialog(self)
 
         file_dialog.setDirectory( AUDIO_DOWNLOADS_PATH )
