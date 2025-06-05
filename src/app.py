@@ -21,16 +21,28 @@ from PySide6.QtMultimedia import (QAudioDecoder, QAudioOutput, QMediaFormat, QAu
 
 import PySide6.QtAsyncio as QtAsyncio
 
-import sys, random, os, asyncio
+import sys, random, os, asyncio, json, io
 from main import download_yt_video_with_hook, DownloadTracker
 
 import utility as util
 from PlaylistElement import (PlayListContainer, PlaylistElement)
 
 
+# ------ Config File Shenanigans ------
 
-# Add a way to change this
-AUDIO_DOWNLOADS_PATH = os.path.join(util.PROJECT_PATH, 'audio-downloads\\') 
+config_obj          = json.load(open(os.path.join(util.SOURCE_PATH, 'config.json'), 'r'))
+
+
+def get_audio_download_dir() -> str:
+    return config_obj["audio_download_path"]
+
+def get_config_object() -> dict:
+    return config_obj
+
+def update_audio_download_dir(new_dir : str) -> None:
+    if os.path.exists(new_dir):
+        config_obj["audio_download_path"] = new_dir
+
 
 
 class YoutubeDownloadWidget(QWidget):
@@ -120,7 +132,7 @@ class YoutubeDownloadWidget(QWidget):
             
             task = asyncio.create_task(download_yt_video_with_hook(
                 url, 
-                AUDIO_DOWNLOADS_PATH, 
+                get_audio_download_dir(), 
                 self.youtube_audio_download_callback
             ))
 
@@ -201,8 +213,9 @@ class UIContainer(QWidget):
     def __init__(self, parent : MainApplication):
         super().__init__()
         
-        list_of_songs = [os.path.join(AUDIO_DOWNLOADS_PATH, x).replace('\\\\', '/').replace('\\', '/') for x in util.get_audio_file_names(AUDIO_DOWNLOADS_PATH)]
-        
+        list_of_songs = [os.path.join(get_audio_download_dir(), song) 
+                         for song in util.get_audio_file_names( get_audio_download_dir() )]
+  
         self._playlist_container = PlayListContainer(list_of_songs)
         self._playlist_container._selected_song.connect(self._play_song)
 
@@ -219,12 +232,18 @@ class UIContainer(QWidget):
         self._refresh_btn.clicked.connect(self._refresh_playlist)
         self._refresh_btn.setText("Refresh")
 
+        self._set_audio_download_folder_btn = QPushButton()
+        self._set_audio_download_folder_btn.setText("Audio Location")
+        self._set_audio_download_folder_btn.clicked.connect(self._update_audio_download_folder)
+
+
         # General layout
         layout = QHBoxLayout(self)
         layout.addWidget(self._playlist_container)
         
         layout.addWidget(self._yt_downloader)
         layout.addWidget(self._refresh_btn)
+        layout.addWidget(self._set_audio_download_folder_btn)
 
     @Slot(str)
     def _play_song(self, path : str, index_of_song : int):
@@ -234,7 +253,13 @@ class UIContainer(QWidget):
         self._playlist_container._toggle_off_every_element(index_to_ignore)
 
     def _refresh_playlist(self):
-        self._playlist_container.refresh_playlist_elements(AUDIO_DOWNLOADS_PATH)
+        self._playlist_container.refresh_playlist_elements( get_audio_download_dir() )
+
+    def _update_audio_download_folder(self):
+        selected_dir = QFileDialog.getExistingDirectory()
+        update_audio_download_dir(selected_dir)
+        self._refresh_playlist()
+        pass
 
 
 class MainApplication(QMainWindow):
@@ -293,7 +318,7 @@ class MainApplication(QMainWindow):
         self._audio_player._ensure_stopped()
         file_dialog = QFileDialog(self)
 
-        file_dialog.setDirectory( AUDIO_DOWNLOADS_PATH )
+        file_dialog.setDirectory( get_audio_download_dir() )
         if file_dialog.exec() == QDialog.DialogCode.Accepted:
             url = file_dialog.selectedUrls()[0].toLocalFile()
             self._audio_player.set_source(url)
@@ -310,3 +335,9 @@ if __name__ == "__main__":
   MainWindow.show()
 
   QtAsyncio.run(handle_sigint=True)
+  
+  #  Update Config file
+  with open(os.path.join(util.SOURCE_PATH, 'config.json'), 'w') as cfg:
+    cfg.write( json.dumps(config_obj) )
+ 
+  
