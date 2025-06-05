@@ -65,3 +65,4 @@ target/
 .venv/
 .build/
 audio-downloads/
+src/config.json
