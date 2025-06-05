@@ -42,7 +42,7 @@ LIGHT_THEME_NO_HOVER = QColorConstants.White
 
 class PlayListContainer(QFrame):
 
-  _selected_song = Signal(str)
+  _selected_song = Signal(str, int)
 
   def __init__(self, list_of_paths : list[str]):
     super().__init__()
@@ -89,7 +89,7 @@ class PlayListContainer(QFrame):
 
   def select_index(self, idx : int):
     self._current_index = idx
-    self._selected_song.emit(self.get_current_song_path())
+    self._selected_song.emit(self.get_current_song_path(), self._current_index)
   
   
   def get_current_song_name(self):
@@ -97,13 +97,19 @@ class PlayListContainer(QFrame):
   def get_current_song_path(self):
     return self._playlist[self._current_index]._song_path
   
+
   def add_element(self, path : str = "", idx : int = -1):
     self._playlist.append( PlaylistElement(path, idx if idx != -1 else len(self._playlist) ) )
     self._playlist[-1].connect_play_button(self.select_index)
     self._playlist_layout.addWidget( self._playlist[-1] )
-    self._playlist_layout.addSpacing(5)
     self.update()
 
+  # Whenever you start playing a different song, this function sends out a notification
+  # To every  element, an example would be to toggle back the 'PLAY_ICON'
+  def _toggle_off_every_element(self, index_to_skip : int = -1):
+    for i, element in enumerate(self._playlist):
+      if i != index_to_skip:
+        element.toggle_off()
 
 
   def _delete_layout_elements(self):
@@ -135,15 +141,14 @@ class PlayListContainer(QFrame):
     for file in os.listdir(audio_dir):
       filename = os.fsdecode(file)
       self.add_element(os.path.join(audio_dir, filename))
-      
-
-
     
 
 
 
 
 
+PLAY_ICON  = QIcon(util.ICON_LOCATION + 'PLAY_ICON.svg')
+PAUSE_ICON = QIcon(util.ICON_LOCATION + 'PAUSE_ICON.svg')
 
 # Singular tab element of a playlist
 # Multiple playlist elements make up a Playlist UI
@@ -154,6 +159,9 @@ class PlaylistElement(QFrame):
   
   def __init__(self, path : str="", idx : int= 0):
     super().__init__()
+
+    self.setObjectName("PlaylistElement")
+    self.setStyleSheet(open(os.path.join(util.STYLE_LOCATION, 'PlaylistStyle.qss')).read())
 
     # Data
     self._my_index  : int = idx
@@ -169,26 +177,39 @@ class PlaylistElement(QFrame):
     # This is to prevent anything from trying to play a non-existent file
     self._song_is_set : bool = False
 
+
+    self._is_playing = False
+
     
 
     # Layouts
-    self._song_data_layout  = QVBoxLayout()
+    self._song_data_layout           = QVBoxLayout()
+    self._song_length_and_btn_layout = QHBoxLayout()
     self._button_layout     = QHBoxLayout()
     self._right_hand_layout = QVBoxLayout()
     main_layout             = QHBoxLayout(self)
 
     # Layout and Labels for the left side of the element
     self._song_name_label   = QLabel()
-    self._song_name_label.setMaximumSize(300, 40)
-    self._song_name_label.setText(self._song_name)
+    self._song_name_label.setObjectName("SongName")
+
+    MAX_SONG_NAME_LENGTH = 60
+    if len(self._song_name) > MAX_SONG_NAME_LENGTH:
+      self._song_name_label.setText(self._song_name[:MAX_SONG_NAME_LENGTH - 3] + '...') 
+    else:
+      self._song_name_label.setText(self._song_name) 
+
+
     self._song_length_label = QLabel()
-    self._song_length_label.setMaximumSize(300, 30)
+    self._song_length_label.setObjectName("SongLength")
     self._song_length_label.setText(util.ms_to_text(self._length_ms))
 
 
     self._song_data_layout.addWidget(self._song_name_label)
-    self._song_data_layout.addWidget(self._song_length_label)
     self._song_data_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+    
+    self._song_length_and_btn_layout.addWidget(self._song_length_label)
+    self._song_length_and_btn_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
 
 
@@ -198,7 +219,11 @@ class PlaylistElement(QFrame):
     self._remove_from_playlist_btn = QPushButton()
     self._other_options_btn        = QPushButton()
 
-    self._play_btn.setText("Play")
+    
+    self._play_btn.setIcon(PLAY_ICON)
+    self._play_btn.setAutoFillBackground(False)
+    self._play_btn.setObjectName("PlayButton")
+
     self._remove_from_playlist_btn.setText("Remove")
     self._other_options_btn.setText("More")
 
@@ -206,12 +231,13 @@ class PlaylistElement(QFrame):
 
     # Button Layout
     self._button_layout.addWidget(self._play_btn)
-    self._button_layout.addSpacing(10)
     self._button_layout.addWidget(self._remove_from_playlist_btn)
-    self._button_layout.addSpacing(10)
     self._button_layout.addWidget(self._other_options_btn)
-    self._button_layout.addSpacing(10)
     self._button_layout.setAlignment(Qt.AlignmentFlag.AlignRight)
+
+    self._song_length_and_btn_layout.addLayout(self._button_layout)
+    self._song_data_layout.addLayout(self._song_length_and_btn_layout)
+
 
     # Note area?
     self._note_textedit = QTextEdit()
@@ -219,11 +245,8 @@ class PlaylistElement(QFrame):
     self._note_textedit.setPlaceholderText("Add a personal note...")
     
     
-    self._right_hand_layout.addLayout(self._button_layout)
     self._right_hand_layout.addWidget(self._note_textedit)
 
-
-    
     # Layout of the whole item
     main_layout.addLayout(self._song_data_layout)
     main_layout.addLayout(self._right_hand_layout)
@@ -273,14 +296,22 @@ class PlaylistElement(QFrame):
       
   def mouseMoveEvent(self, event: QMouseEvent):
     # Change color here
-    print(event)
-    self.toggle_color()
-
-  def toggle_color(self):
+    # print(event)
+    # self.toggle_color()
     pass
+
+
+  def toggle_off(self):
+    self._play_btn.setIcon(PLAY_ICON)
 
   @Slot()
   def on_play_btn_click(self):
+
+    self._is_playing = not self._is_playing
+    if self._is_playing:
+      self._play_btn.setIcon(PAUSE_ICON)
+    else:
+      self._play_btn.setIcon(PLAY_ICON)
     self._play_clicked_signal.emit(self._my_index, self._song_path)
   
   @Slot()

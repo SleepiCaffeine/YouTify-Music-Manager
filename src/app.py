@@ -28,9 +28,9 @@ import utility as util
 from PlaylistElement import (PlayListContainer, PlaylistElement)
 
 
-CURRENT_PATH         = os.path.dirname(os.path.realpath(__file__))
+
 # Add a way to change this
-AUDIO_DOWNLOADS_PATH = os.path.join(os.path.split(CURRENT_PATH)[0],  'audio-downloads\\') 
+AUDIO_DOWNLOADS_PATH = os.path.join(util.PROJECT_PATH, 'audio-downloads\\') 
 
 
 class YoutubeDownloadWidget(QWidget):
@@ -174,7 +174,7 @@ class AudioPlayer(QWidget):
         
     @Slot()
     def set_source(self, path : str):
-        if self._curr_path != path and os.path.exists(path) :
+        if self._curr_path != path and os.path.exists(path):
             self._player.stop()
             self._player.setSource(path)
             self._curr_path = path
@@ -195,7 +195,7 @@ class AudioPlayer(QWidget):
 
 class UIContainer(QWidget):
 
-    _play_song_signal = Signal(str)
+    _play_song_signal = Signal(str, int)
     
 
     def __init__(self, parent : MainApplication):
@@ -227,10 +227,11 @@ class UIContainer(QWidget):
         layout.addWidget(self._refresh_btn)
 
     @Slot(str)
-    def _play_song(self, path : str):
-        print(f"Playing: {path}")
-        self._play_song_signal.emit(path)
-
+    def _play_song(self, path : str, index_of_song : int):
+        self._play_song_signal.emit(path, index_of_song)
+    
+    def _toggle_off_songs(self, index_to_ignore : int = -1):
+        self._playlist_container._toggle_off_every_element(index_to_ignore)
 
     def _refresh_playlist(self):
         self._playlist_container.refresh_playlist_elements(AUDIO_DOWNLOADS_PATH)
@@ -258,7 +259,7 @@ class MainApplication(QMainWindow):
         self._audio_player._ensure_stopped()
         event.accept()
 
-    def handlePlayButtonClick(self, path : str):
+    def handlePlayButtonClick(self, path : str, index_of_song : int):
         # There are 3 possible states:
         # 1. The player is stopped (No song/Finished previous)
         # 2. It is paused
@@ -276,6 +277,7 @@ class MainApplication(QMainWindow):
         # Otherwise, they're trying to play something else.
 
         else:
+            self._ui_container._toggle_off_songs(index_of_song)
             self._audio_player._ensure_stopped()
             self._audio_player.set_source(path)
             self._audio_player.play_song()
