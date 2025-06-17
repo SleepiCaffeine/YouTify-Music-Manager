@@ -4,6 +4,7 @@ PROJECT_PATH   = os.path.split(os.path.dirname(os.path.realpath(__file__)))[0]
 SOURCE_PATH    = os.path.join(PROJECT_PATH, 'src/')
 ICON_LOCATION  = os.path.join(PROJECT_PATH, 'icons/')
 STYLE_LOCATION = os.path.join(SOURCE_PATH, 'style/')
+DATA_LOCATION  = os.path.join(PROJECT_PATH, 'data/')
 
 def get_dir_filenames( dir : str ) -> list[str]:
   files = []
