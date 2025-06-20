@@ -5,7 +5,8 @@ from PySide6.QtCore import (QDateTime, QDir, QLibraryInfo, QSysInfo, Qt,
                             QTimer, Slot, qVersion, Signal, QUrl, QObject, )
 from PySide6.QtGui import (QCursor, QDesktopServices, QGuiApplication, QIcon,
                            QKeySequence, QShortcut, QStandardItem,
-                           QStandardItemModel, QAction, QColor, QMouseEvent, QColorConstants)
+                           QStandardItemModel, QAction, QColor, QMouseEvent, QColorConstants,
+                           QPalette)
 
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox,
                                QCommandLinkButton, QDateTimeEdit, QDial,
@@ -25,9 +26,11 @@ from PySide6.QtMultimedia import (QAudioDecoder, QAudioOutput, QMediaFormat, QAu
 import PySide6.QtAsyncio as QtAsyncio
 
 import sys, random, os, asyncio
+import re
 from typing import Callable
 
 from downloader import DownloadTracker
+from typing import Dict, Any, Optional, Tuple, List
 
 import soundfile as sf
 import utility as util
@@ -42,26 +45,34 @@ LIGHT_THEME_NO_HOVER = QColorConstants.White
 
 class PlayListContainer(QFrame):
 
-  _play_button_clicked = Signal(str, int)
+  _play_button_clicked = Signal(int, str)
 
-  def __init__(self, list_of_paths : list[str]):
+  def __init__(self, songs_query : List[Dict[str, Any]]):
     
 
     super().__init__()
 
     self._current_index = 0
+    self._songs = songs_query
+
+    self._search_bar = QLineEdit(placeholderText="Search for songs or playlists... ")
+    self._search_bar.textChanged.connect(self._search_text_changed)
 
     self._name = QLabel()
-    self._name.setText("WAOW PLAYLIST")
+    self._name.setText("Title of Playlist")
     self._name.setObjectName("PlaylistTitle")
 
-
     self._desc = QLabel()
-    self._desc.setText("this is so awesoem guys")
+    self._desc.setText("This is what a description of a playlist might look like.\nYou should give it a try!")
     self._desc.setObjectName("PlaylistDescription")
 
     self._more_options = QPushButton()
     self._more_options.setText("Options (WIP)")
+
+    # List of UI objects
+    self._playlist : list[PlaylistElement] = []
+    self._playlist_layout = QVBoxLayout()
+
 
     self._title_layout  = QVBoxLayout()
     self._title_layout.addWidget(self._name)
@@ -70,14 +81,10 @@ class PlayListContainer(QFrame):
     self._header_layout = QHBoxLayout()
     
     self._header_layout.addLayout(self._title_layout)
+    self._header_layout.addWidget(self._search_bar)
     self._header_layout.addWidget(self._more_options)
 
-    # List of UI objects
-    self._playlist : list[PlaylistElement] = []
-    self._playlist_layout = QVBoxLayout()
-
-    for idx, path in enumerate(list_of_paths):
-      self.add_element(path, idx)
+    self.refresh_playlist_elements(self._songs)
 
 
     general_layout = QVBoxLayout(self)
@@ -86,6 +93,10 @@ class PlayListContainer(QFrame):
     general_layout.addLayout(self._playlist_layout)  
 
     self.setStyleSheet(open(os.path.join(util.STYLE_LOCATION, 'PlaylistStyle.qss')).read())
+    
+    color = QPalette()
+    color.setColor(QPalette.ColorRole.Text, QColor("#FF00FF"))
+    self._name.setPalette(color)
 
 
 
@@ -93,16 +104,33 @@ class PlayListContainer(QFrame):
     self._current_index = idx
     self._play_button_clicked.emit(self.get_current_song_path(), self._current_index)
   
+
+  def _search_text_changed(self, text : str):
+    # Update selection with all of the songs that match the text
+    
+    # Clear all visible choices
+    self._delete_layout_elements()
+    self._delete_elements()
+
+    # Add only the ones that match
+    for song in self._songs:
+      regex_match = re.match(text, song["user_title"])
+      if regex_match is not None:
+        self.add_element(song)
+
   
+
+
   def get_current_song_name(self):
     return self._playlist[self._current_index]._song_name
   def get_current_song_path(self):
     return self._playlist[self._current_index]._song_path
   
 
-  def add_element(self, path : str = "", idx : int = -1):
-    self._playlist.append( PlaylistElement(path, idx if idx != -1 else len(self._playlist) ) )
-    self._playlist[-1].connect_play_button(self.play_song)
+  def add_element(self, song : Dict[str, Any]):
+    # TODO: Change this so it orders itself with the propper playlist positions in 'playlists' table
+    self._playlist.append( PlaylistElement(song) )
+    self._playlist[-1]._play_clicked_signal.connect(self._play_button_clicked)
     self._playlist_layout.addWidget( self._playlist[-1] )
     self.update()
 
@@ -133,17 +161,14 @@ class PlayListContainer(QFrame):
 
 
 
-  def refresh_playlist_elements(self, audio_dir : str = ""):
-    if not os.path.exists(audio_dir):
-      raise Exception("Audio path does not exist!")
+  def refresh_playlist_elements(self, new_songs : List[Dict[str, Any]] | None = None):
     
     self._delete_layout_elements()
     self._delete_elements()
 
-    for file in os.listdir(audio_dir):
-      filename = os.fsdecode(file)
-      self.add_element(os.path.join(audio_dir, filename))
-    
+    for song in (new_songs if new_songs is not None else self._songs):
+      self.add_element(song)
+
 
 
 
@@ -159,22 +184,22 @@ class PlaylistElement(QFrame):
   _clicked_signal      = Signal(int, name="Mouse Click")
   _play_clicked_signal = Signal(int, str)
   
-  def __init__(self, path : str="", idx : int= 0):
+  def __init__(self, song_data : Dict[str, Any] ):
     super().__init__()
 
     self.setObjectName("PlaylistElement")
     self.setStyleSheet(open(os.path.join(util.STYLE_LOCATION, 'PlaylistStyle.qss')).read())
 
     # Data
-    self._my_index  : int = idx
-    self._song_name : str = ""
-    self._song_path : str = ""
-    self.set_song(path)
+    self._data      : Dict[str, Any] = song_data
+    self._id        : int            = self._data["id"]
+    self._song_name : str            = self._data["user_title"]
+    self._song_path : str            = self._data["file_path"]
+    self.set_song(self._song_path)
 
     # Saving in milliseconds simply to avoid carrying floats around
     # and it's easy to convert back into seconds, or work with pydub
-    self._length_ms : int
-
+    self._length_ms : int = self._data["duration"] * 1000
     # Mainly used as a debug tool, enabled once set_song() has been called
     # This is to prevent anything from trying to play a non-existent file
     self._song_is_set : bool = False
@@ -316,7 +341,7 @@ class PlaylistElement(QFrame):
       self._play_btn.setIcon(PAUSE_ICON)
     else:
       self._play_btn.setIcon(PLAY_ICON)
-    self._play_clicked_signal.emit(self._my_index, self._song_path)
+    self._play_clicked_signal.emit(self._id, self._song_path)
   
   @Slot()
   def connect_play_button(self, function : Callable):

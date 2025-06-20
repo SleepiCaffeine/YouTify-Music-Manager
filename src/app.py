@@ -21,14 +21,14 @@ from PySide6.QtMultimedia import (QAudioDecoder, QAudioOutput, QMediaFormat, QAu
 
 import PySide6.QtAsyncio as QtAsyncio
 
-import sys, random, os, asyncio, json, io
+import sys, random, os, asyncio, json, io, sqlite3
 
 
 import utility as util
 import config
 from playlist import (PlayListContainer, PlaylistElement)
 from widgets import (MusicDownloadWidget, AudioPlayer, UIContainer) 
-
+from database import DatabaseConnection
 
 
 
@@ -38,10 +38,12 @@ class MainApplication(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self._audio_player = AudioPlayer()
+        self._audio_player  = AudioPlayer()
+        self._db_connection = DatabaseConnection()
         
-        self._ui_container = UIContainer(self)
+        self._ui_container  = UIContainer(self, self._db_connection.get_all_songs())
         self._ui_container._play_song_signal.connect(self.handlePlayButtonClick)
+
         self.setCentralWidget(self._ui_container)
 
 
@@ -49,7 +51,9 @@ class MainApplication(QMainWindow):
         self._audio_player._ensure_stopped()
         event.accept()
 
-    def handlePlayButtonClick(self, path : str, index_of_song : int):
+    def handlePlayButtonClick(self, song_id : int, song_path : str):
+        print(f"handlePlayButtonClick has been called with (song_id={song_id}, song_path={song_path})")
+
         # There are 3 possible states:
         # 1. The player is stopped (No song/Finished previous)
         # 2. It is paused
@@ -58,7 +62,7 @@ class MainApplication(QMainWindow):
         # If the user is attempting to play a song with the same path as the current one,
         # This means that they're trying to either pause or unpause the song.
 
-        if self._audio_player._curr_path == path:
+        if self._audio_player._curr_song_id == song_id:
             if self._audio_player._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
                 self._audio_player.pause_song()
             else:
@@ -67,15 +71,26 @@ class MainApplication(QMainWindow):
         # Otherwise, they're trying to play something else.
 
         else:
-            self._ui_container._toggle_off_songs(index_of_song)
+            self._ui_container._toggle_off_songs(song_id)
             self._audio_player._ensure_stopped()
-            self._audio_player.set_source(path)
+            self._audio_player.set_source(song_id, song_path)
             self._audio_player.play_song()
-        
+    
+    
+    def update_songs_directory(self, path : str):
+        # The received path was through file dialogue, so it should be valid
+        # First clear the database, since all of the information is now invalid
+        self._db_connection.clear_all()
+        # For each file
+        for file in os.listdir(path):
+            # Get only the filename
+            filename = os.fsdecode(file)
+            # And add it along with the whole path to the database
+            self._db_connection.create_song(os.path.join(path, filename))
+
                     
     
     def set_audio_source(self, path : str):
-        
         self._audio_player.set_source(path)
     
 
@@ -84,7 +99,6 @@ class MainApplication(QMainWindow):
         self._audio_player._ensure_stopped()
         file_dialog = QFileDialog(self)
 
-        file_dialog.setDirectory( config.get_audio_download_dir() )
         if file_dialog.exec() == QDialog.DialogCode.Accepted:
             url = file_dialog.selectedUrls()[0].toLocalFile()
             self._audio_player.set_source(url)
@@ -101,7 +115,4 @@ if __name__ == "__main__":
   MainWindow.show()
 
   QtAsyncio.run(handle_sigint=True)
-  
-  config.update_config_file()
- 
   

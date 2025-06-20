@@ -167,7 +167,7 @@ class AudioPlayer:
       
   @Slot()
   def set_source(self, song_id : int, path_to_song : str):
-    print(f"setting id: {song_id}")
+    print(f"setting id: {song_id}\npath: {path_to_song}")
     if self._curr_song_id != song_id and os.path.exists(path_to_song):
       self._player.stop()
       self._player.setSource(path_to_song)
@@ -192,20 +192,16 @@ class AudioPlayer:
 
 class UIContainer(QWidget):
 
-  _play_song_signal = Signal(int)
+  _play_song_signal = Signal(int, str)
   _update_songs_dir = Signal(str)
   
 
   def __init__(self, parent, list_of_songs : List[Dict[str, Any]]):
     super().__init__()
+    print(f"Initializing UiContainer with:\n{list_of_songs}")
     # Will have to change the way a playlist is loaded
     self._playlist_container = PlayListContainer(list_of_songs)
     self._playlist_container._play_button_clicked.connect(self._play_song)
-
-    # Ways to interact with the Audio Player
-    self._audio_play_btn = QPushButton()
-    self._audio_play_btn.setText("Play!")
-    self._audio_play_btn.clicked.connect(parent.handlePlayButtonClick)
 
 
     self._music_downloader = MusicDownloadWidget()
@@ -232,15 +228,15 @@ class UIContainer(QWidget):
     layout.addWidget(self._set_audio_download_folder_btn)
 
   @Slot(str)
-  def _play_song(self,index_of_song : int):
-    self._play_song_signal.emit(index_of_song)
+  def _play_song(self, song_id : int, song_path : str):
+    self._play_song_signal.emit(song_id, song_path)
 
   
   def _toggle_off_songs(self, index_to_ignore : int = -1):
     self._playlist_container._toggle_off_every_element(index_to_ignore)
 
   def _refresh_playlist(self):
-    self._playlist_container.refresh_playlist_elements( config.get_audio_download_dir() )
+    self._playlist_container.refresh_playlist_elements()
 
   def _update_audio_download_folder(self):
     # Get dir through native WindowBox
