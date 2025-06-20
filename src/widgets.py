@@ -25,9 +25,9 @@ import sys, random, os, asyncio, json, io
 from downloader import (DownloadTracker, YoutubeDownloader,  SpotifyDownloader, SpotifyDownloaderException)
 
 import utility as util
+from typing import Dict, Any, Optional, Tuple, List
 import config
 from playlist import (PlayListContainer)
-
 
 
 
@@ -161,16 +161,17 @@ class AudioPlayer:
     # Initialize the media playback stuff
     self._audio_output = QAudioOutput()
     self._player       = QMediaPlayer()
-    self._curr_path : str = ""
+    self._curr_path    : str = ""
+    self._curr_song_id : int = 0
     self._player.setAudioOutput(self._audio_output)
       
   @Slot()
-  def set_source(self, path : str):
-    print(f"setting source: {path}")
-    if self._curr_path != path and os.path.exists(path):
+  def set_source(self, song_id : int, path_to_song : str):
+    print(f"setting id: {song_id}")
+    if self._curr_song_id != song_id and os.path.exists(path_to_song):
       self._player.stop()
-      self._player.setSource(path)
-      self._curr_path = path
+      self._player.setSource(path_to_song)
+      self._curr_song_id = song_id
 
   @Slot()
   def play_song(self):
@@ -191,15 +192,13 @@ class AudioPlayer:
 
 class UIContainer(QWidget):
 
-  _play_song_signal = Signal(str, int)
+  _play_song_signal = Signal(int)
+  _update_songs_dir = Signal(str)
   
 
-  def __init__(self, parent):
+  def __init__(self, parent, list_of_songs : List[Dict[str, Any]]):
     super().__init__()
-    
-    list_of_songs = [os.path.join(config.get_audio_download_dir(), song) 
-                      for song in util.get_audio_file_names( config.get_audio_download_dir() )]
-
+    # Will have to change the way a playlist is loaded
     self._playlist_container = PlayListContainer(list_of_songs)
     self._playlist_container._play_button_clicked.connect(self._play_song)
 
@@ -222,6 +221,8 @@ class UIContainer(QWidget):
     self._set_audio_download_folder_btn.clicked.connect(self._update_audio_download_folder)
 
 
+    self._update_songs_dir.connect(parent.update_songs_directory)
+
     # General layout
     layout = QHBoxLayout(self)
     layout.addWidget(self._playlist_container)
@@ -231,9 +232,9 @@ class UIContainer(QWidget):
     layout.addWidget(self._set_audio_download_folder_btn)
 
   @Slot(str)
-  def _play_song(self, path : str, index_of_song : int):
-    print(f"Trying to play {path}")
-    self._play_song_signal.emit(path, index_of_song)
+  def _play_song(self,index_of_song : int):
+    self._play_song_signal.emit(index_of_song)
+
   
   def _toggle_off_songs(self, index_to_ignore : int = -1):
     self._playlist_container._toggle_off_every_element(index_to_ignore)
@@ -242,8 +243,13 @@ class UIContainer(QWidget):
     self._playlist_container.refresh_playlist_elements( config.get_audio_download_dir() )
 
   def _update_audio_download_folder(self):
+    # Get dir through native WindowBox
     selected_dir = QFileDialog.getExistingDirectory()
     config.update_audio_download_dir(selected_dir)
+    # Update Directory where songs are stored
     self._music_downloader.update_output_dir(config.get_audio_download_dir())
+    # Update directory where the database points
+    self._update_songs_dir.emit(selected_dir)
+    # Refresh UI
     self._refresh_playlist()
     pass
