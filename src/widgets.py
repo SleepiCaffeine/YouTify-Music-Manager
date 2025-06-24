@@ -28,7 +28,108 @@ import utility as util
 from typing import Dict, Any, Optional, Tuple, List
 import config
 from playlist import (PlayListContainer)
+from PlaylistSelectionList import PlaylistSelectionList
 
+
+class MusicDownloader(QObject):
+  progress_updated_signal   = Signal(object)
+  download_completed_signal = Signal()
+  
+
+  def __init__(self, callback_handler):
+
+    super().__init__()
+
+    self.output_dir : str = ""
+
+    self.spotify_downloader = SpotifyDownloader()
+    self.yt_downloader      = YoutubeDownloader()
+
+    self.progress_updated_signal.connect(callback_handler)
+
+    self.current_download_task = None
+
+
+  def start_download(self, url : str) -> Tuple[str, bool]:
+
+    if self.current_download_task is not None and not self.current_download_task.done():
+      return ("Download already in progress...", False)
+
+    if len(url) == 0:
+      return ("you didn't add no text???", False)
+
+    # YOUTUBE LINK:
+    # Note to self: maybe add some other form of link validation in the future
+    if (link in url for link in ["youtube.", "youtu.be"]):
+      self.current_download_task = asyncio.create_task(self.yt_download_url(url))
+      return ("Started Download", True)
+
+    elif (link in url for link in ["play.spotify", "open.spotify"]):
+      self.current_download_task = asyncio.create_task(self.spotify_download_url(url))
+      return ("Started Download", True)
+    
+    elif "spotify:" in url:
+       return ("This app currently doesn't support URIs :/\nTry with a regular URL instead", False)
+    
+    else:
+      return ("Please enter in a valid Youtube/Spotify track URL", False)
+
+
+  def youtube_audio_download_callback(self, tracker : DownloadTracker):
+    QTimer.singleShot(0, lambda: self.update_progress_display(tracker))
+  
+
+  def update_progress_display(self, tracker : DownloadTracker):
+    
+    QApplication.processEvents()
+    self.progress_updated_signal.emit(tracker)
+  
+
+  async def spotify_download_url(self, url : str):
+    try:
+      self.spotify_downloader.download_link(url)
+    except SpotifyDownloaderException as e:
+      print(e)
+    finally:
+       return   
+    
+  
+  async def yt_download_url(self, url: str) -> bool:
+    try:
+        
+      task = asyncio.create_task(self.yt_downloader.download_yt_video_with_hook(
+          url, 
+          config.get_audio_download_dir(), 
+          self.youtube_audio_download_callback
+      ))
+        
+      error_code, progress = await task 
+      #TODO: change these error codes to simply be exceptions
+      match error_code:
+          case -1:
+            raise RuntimeError(f"Failed download, because Youtube thought this is a bot.\nTurn off any VPNs or update your cookies in the settings")
+          case 0:
+            return True
+          case _:
+            raise RuntimeError(f"An error occured with your download! Try again later")
+              
+                  
+                  
+          
+    except Exception as e:
+      raise e
+
+    finally:
+      self.current_download_task = None
+      # Emit signal to inform that a download is done
+      self.download_completed_signal.emit()
+
+
+  def update_output_dir(self, path: str):
+    if not os.path.exists(path):
+      raise Exception("Provided path doesn't exist")
+    else:
+      self.output_dir = path
 
 
 
@@ -41,11 +142,9 @@ class MusicDownloadWidget(QWidget):
   def __init__(self):
     super().__init__()
     layout = QVBoxLayout(self)
-
-    self.output_dir : str = ""
-
-    self.spotify_downloader = SpotifyDownloader()
-    self.yt_downloader      = YoutubeDownloader()
+    
+    self.downloader = MusicDownloader(self.update_progress_display)
+    self.downloader.download_completed_signal.connect(self.download_completed_signal)
     
     self.label = QLabel("Music Downloader", alignment=Qt.AlignmentFlag.AlignCenter)
 
@@ -53,7 +152,6 @@ class MusicDownloadWidget(QWidget):
     self.text_input = QPlainTextEdit()
     self.text_input.setPlaceholderText("Enter in a valid Youtube/Spotify URL")
 
-    self.progress_updated_signal.connect(self.update_progress_display)
 
     self.download_button = QPushButton("Download Music!")
     self.download_button.clicked.connect(self.start_download)
@@ -68,33 +166,10 @@ class MusicDownloadWidget(QWidget):
 
 
   def start_download(self):
-
-    if self.current_download_task is not None and not self.current_download_task.done():
-      self.set_label("Download already in progress...")
-      return
     
-    # URL validation
-    url = self.text_input.toPlainText().strip()
-    if len(url) == 0:
-      self.set_label("you didn't add no text???")
-      return
-
-    # YOUTUBE LINK:
-    # Note to self: maybe add some other form of link validation in the future
-    if (link in url for link in ["youtube.", "youtu.be"]):
-      self.current_download_task = asyncio.create_task(self.yt_download_url(url))
-      return
-
-    elif (link in url for link in ["play.spotify", "open.spotify"]):
-      self.current_download_task = asyncio.create_task(self.spotify_download_url(url))
-      return
+    str, result = self.downloader.start_download(self.text_input.toPlainText().strip())
+    self.set_label(str)
     
-    elif "spotify:" in url:
-       self.set_label("This app currently doesn't support URIs :/\nTry with a regular URL instead")
-    
-    else:
-      self.set_label("Please enter in a valid Youtube/Spotify track URL")
-
 
   def set_label(self, text : str):
     self.label.setText(text)
@@ -109,51 +184,9 @@ class MusicDownloadWidget(QWidget):
     QApplication.processEvents()
   
 
-  async def spotify_download_url(self, url : str):
-    try:
-      self.spotify_downloader.download_link(url)
-    except SpotifyDownloaderException as e:
-      print(e)
-    finally:
-       return   
-    
-  
-  async def yt_download_url(self, url: str):
-    try:
-        
-      task = asyncio.create_task(self.yt_downloader.download_yt_video_with_hook(
-          url, 
-          config.get_audio_download_dir(), 
-          self.youtube_audio_download_callback
-      ))
-
-      self.label.setText("Began download!")
-        
-      error_code, progress = await task 
-      #TODO: change these error codes to simply be exceptions
-      match error_code:
-          case -1:
-              self.label.setText(f"Failed download, because Youtube thought this is a bot.\nTurn off any VPNs or update your cookies in the settings")
-          case 0:
-              self.label.setText(f"Download completed!")
-          case _:
-              self.label.setText(f"An error occured with your download! Try again later")
-                  
-                  
-          
-    except Exception as e:
-      self.label.setText(f"Download failed: {str(e)}")
-
-    finally:
-      self.current_download_task = None
-      # Emit signal to inform that a download is done
-      self.download_completed_signal.emit()
 
   def update_output_dir(self, path: str):
-    if not os.path.exists(path):
-      raise Exception("Provided path doesn't exist")
-    else:
-      self.output_dir = path
+    self.downloader.update_output_dir(path)
 
 
 class AudioPlayer:
@@ -192,26 +225,39 @@ class AudioPlayer:
 
 class UIContainer(QWidget):
 
-  _play_song_signal = Signal(int, str)
-  _update_songs_dir = Signal(str)
+  _play_song_signal     = Signal(int, str) # Song ID and Song path
+  _update_songs_dir     = Signal(str)      # Directory where downloads should be placed
+  _new_songs_downloaded = Signal(str)      # Directory where to look for new songs
+  _request_songs_for_refresh = Signal(int) # Signal up to MainApplication to callback with songs table. Argument is playlist ID
+  _create_new_playlist_in_db = Signal()    # Signal up to MainApplication to create a new playlist.
+
   
 
-  def __init__(self, parent, list_of_songs : List[Dict[str, Any]]):
+  def __init__(self, parent, list_of_playlists : List[Dict[str, Any]]):
     super().__init__()
-    print(f"Initializing UiContainer with:\n{list_of_songs}")
-    # Will have to change the way a playlist is loaded
-    self._playlist_container = PlayListContainer(list_of_songs)
+
+    # Loads selection of playlist to the user
+    self._playlist_selection_list = PlaylistSelectionList(list_of_playlists)
+
+    self._search_bar = QLineEdit(placeholderText="Search for playlists... ")
+    self._search_bar.textChanged.connect(self._playlist_selection_list._search_text_changed)
+    self._search_bar.setMaximumHeight(40)
+
+    self._create_new_playlist_btn = QPushButton()
+    self._create_new_playlist_btn.setText("New")
+    self._create_new_playlist_btn.clicked.connect(self._create_new_playlist_in_db.emit)
+
+    # Loads the container to display the songs in a certain playlist
+    self._playlist_container = PlayListContainer()
     self._playlist_container._play_button_clicked.connect(self._play_song)
 
-
+    # Widget to facilitate downloading from yt/spotify
     self._music_downloader = MusicDownloadWidget()
+    self._music_downloader.setMaximumWidth(100)
     self._music_downloader.download_completed_signal.connect(self._refresh_playlist)
     self._music_downloader.update_output_dir(config.get_audio_download_dir())
 
-    self._refresh_btn = QPushButton()
-    self._refresh_btn.clicked.connect(self._refresh_playlist)
-    self._refresh_btn.setText("Refresh")
-
+    # Will be deteled, but I want to keep this, just so I would remember that I made it
     self._set_audio_download_folder_btn = QPushButton()
     self._set_audio_download_folder_btn.setText("Audio Location")
     self._set_audio_download_folder_btn.clicked.connect(self._update_audio_download_folder)
@@ -221,11 +267,25 @@ class UIContainer(QWidget):
 
     # General layout
     layout = QHBoxLayout(self)
-    layout.addWidget(self._playlist_container)
+    # 
+    self.playlist_selection_layout = QVBoxLayout()
+    self.playlist_selection_search_layout = QHBoxLayout()
+
+    self.playlist_selection_search_layout.addWidget(self._search_bar)
+    self.playlist_selection_search_layout.addWidget(self._create_new_playlist_btn)
+
+    self.playlist_selection_layout.addLayout(self.playlist_selection_search_layout)
+    self.playlist_selection_layout.addWidget(self._playlist_selection_list)
+
+
     
     layout.addWidget(self._music_downloader)
-    layout.addWidget(self._refresh_btn)
-    layout.addWidget(self._set_audio_download_folder_btn)
+    layout.addLayout(self.playlist_selection_layout)
+    layout.addWidget(self._playlist_container)
+    
+
+    # layout.addWidget(self._refresh_btn)
+    # layout.addWidget(self._set_audio_download_folder_btn)
 
   @Slot(str)
   def _play_song(self, song_id : int, song_path : str):
@@ -236,7 +296,10 @@ class UIContainer(QWidget):
     self._playlist_container._toggle_off_every_element(index_to_ignore)
 
   def _refresh_playlist(self):
-    self._playlist_container.refresh_playlist_elements()
+    self._new_songs_downloaded.emit(self._music_downloader.downloader.output_dir)
+
+  def refresh_playlist(self, songs : List[Dict[str, Any]]):
+    self._playlist_container.refresh_playlist_elements(songs)
 
   def _update_audio_download_folder(self):
     # Get dir through native WindowBox
@@ -249,3 +312,13 @@ class UIContainer(QWidget):
     # Refresh UI
     self._refresh_playlist()
     pass
+  
+
+  def handle_new_playlist(self, playlist_data : Dict[str, Any]):
+    # This function is responsible for displaying the playlist in the selection screen
+    self._playlist_selection_list.add_element(playlist_data)
+    
+    # AND making the new playlist the current "Active" one
+    self._request_songs_for_refresh.emit(playlist_data["id"])
+    pass
+

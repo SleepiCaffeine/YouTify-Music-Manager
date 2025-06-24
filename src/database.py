@@ -131,12 +131,28 @@ class DatabaseConnection:
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
+  def get_songs_by_playlist_id(
+      self,
+      playlist_id : int
+  ) -> List[Dict[str, Any]]:
+    cursor = self.get_connection().cursor()
+    cursor.execute("""
+        SELECT s.*
+        FROM songs s
+        JOIN playlists_songs ps on s.id = ps.song_id
+        JOIN playlists p on ps.playlist_id = p.id
+        WHERE p.id = ?
+      """, (playlist_id,))
+    columns = [desc[0] for desc in cursor.description]
+    return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
 
   def get_all_songs(self) -> List[Dict[str, Any]]:
     cursor = self.get_connection().cursor()
     cursor.execute("SELECT * from songs ORDER BY user_title")
     columns = [desc[0] for desc in cursor.description]
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
 
   def update_song(self, song_id: int, **kwargs) -> bool:
     """Update song fields. Returns True if updated, False if song not found."""
@@ -248,6 +264,23 @@ class DatabaseConnection:
     cursor.execute("SELECT * from playlists ORDER BY name")
     columns = [desc[0] for desc in cursor.description]
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+  
+  def update_playlist(self, playlist_id: int, **kwargs) -> bool:
+    """Update playlist fields. Returns True if updated, False if playlist not found."""
+    allowed_fields = {'name', 'description', 'total_duration', 'song_count'}
+    updates = {k: v for k, v in kwargs.items() if k in allowed_fields}
+    
+    if not updates:
+      return False
+        
+    with self._lock:
+      set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
+      cursor = self.get_connection().cursor()
+      cursor.execute(f"UPDATE songs SET {set_clause} WHERE id = ?", 
+                     list(updates.values()) + [playlist_id])
+      self.get_connection().commit()
+      return cursor.rowcount > 0
 
 
   def add_song_to_playlist(
