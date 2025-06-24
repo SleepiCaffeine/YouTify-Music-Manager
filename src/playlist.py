@@ -45,9 +45,9 @@ LIGHT_THEME_NO_HOVER = QColorConstants.White
 
 class PlayListContainer(QFrame):
 
-  _play_button_clicked = Signal(int, str)
+  _play_button_clicked      = Signal(int, str)
 
-  def __init__(self, songs_query : List[Dict[str, Any]]):
+  def __init__(self, songs_query : List[Dict[str, Any]] = []):
     
 
     super().__init__()
@@ -57,6 +57,7 @@ class PlayListContainer(QFrame):
 
     self._search_bar = QLineEdit(placeholderText="Search for songs or playlists... ")
     self._search_bar.textChanged.connect(self._search_text_changed)
+    self._search_bar.setMaximumSize(300, 100)
 
     self._name = QLabel()
     self._name.setText("Title of Playlist")
@@ -81,7 +82,6 @@ class PlayListContainer(QFrame):
     self._header_layout = QHBoxLayout()
     
     self._header_layout.addLayout(self._title_layout)
-    self._header_layout.addWidget(self._search_bar)
     self._header_layout.addWidget(self._more_options)
 
     self.refresh_playlist_elements(self._songs)
@@ -89,6 +89,7 @@ class PlayListContainer(QFrame):
 
     general_layout = QVBoxLayout(self)
     general_layout.addLayout(self._header_layout)
+    general_layout.addWidget(self._search_bar)
     general_layout.addSpacing(10)
     general_layout.addLayout(self._playlist_layout)  
 
@@ -165,7 +166,7 @@ class PlayListContainer(QFrame):
     
     self._delete_layout_elements()
     self._delete_elements()
-
+    print(f"Updating Playlist Container with these songs: {new_songs}")
     for song in (new_songs if new_songs is not None else self._songs):
       self.add_element(song)
 
