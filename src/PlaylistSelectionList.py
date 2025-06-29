@@ -26,14 +26,20 @@ import random
 import os
 import re
 from typing import Callable
+from mylogger import global_logger
 
 from typing import Dict, Any, Optional, Tuple, List
 import utility as util
 
+
+
+
+
 class PlaylistSelectionList(QFrame):
   
-  _activate_playlist   = Signal(int)
-  _create_new_playlist = Signal()
+  _activate_playlist      = Signal(int)
+  _play_specific_playlist = Signal(int)
+  _create_new_playlist    = Signal()
 
   def __init__(self, list_of_playlists : List[Dict[str, Any]]):
     super().__init__()
@@ -66,6 +72,7 @@ class PlaylistSelectionList(QFrame):
 
   def activate_playlist(self, playlist_id : int):
     # Send signal to update the playlist songs on another element
+    global_logger.debug(f"PlaylistSelectionList sending _activate_playlist signal with id: {playlist_id}")
     self._activate_playlist.emit(playlist_id)
     
   
@@ -84,15 +91,21 @@ class PlaylistSelectionList(QFrame):
 
   
   def add_element(self, playlist : Dict[str, Any]):
+
+    global_logger.debug(f"PlaylistSelectionList adding element: {playlist}")
+
     # Quick check if this is the text prompting to make a playlist is still there:
     # Because if so - it needs to be deleted
     if len(self._selection_list) == 0:
       self._delete_layout_elements()
 
-    self._selection_list.append( PlaylistSelection(playlist) )
-    # TODO: Change this to selection, instead of playing
-    # self._selection_list[-1]._play_clicked_signal.connect(self._play_button_clicked)
-    self._selection_layout.addWidget( self._selection_list[-1] )
+    selection_element = PlaylistSelection(playlist, len(self._selection_list))
+    self._selection_list.append( selection_element )
+    
+    selection_element._selected_signal.connect(self._activate_playlist)
+    selection_element._play_signal.connect(self._play_specific_playlist)
+    
+    self._selection_layout.addWidget( selection_element )
     self.update()
 
 
@@ -117,6 +130,8 @@ class PlaylistSelectionList(QFrame):
 
 
   def refresh_selections(self, playlists : List[Dict[str, Any]] | None = None):
+    global_logger.debug(f"PlaylistSelectionList refreshing selection with: {playlists}")
+
     self._delete_layout_elements()
     for playlist in (playlists if playlists is not None else self._playlists):
       self.add_element(playlist)
@@ -128,11 +143,11 @@ class PlaylistSelectionList(QFrame):
 # Multiple playlist elements make up a Playlist UI
 class PlaylistSelection(QFrame):
   
-  _selected_signal = Signal(dict)           # Sends up a signal with all of the playlist data to load up elsewhere
-  _play_signal     = Signal()               # Sends up a signal to notify that this playlist should also start playing
+  _selected_signal = Signal(int)            # Sends up a signal with all of the playlist data to load up elsewhere
+  _play_signal     = Signal(int)            # Sends up a signal to notify that this playlist should also start playing
   
   
-  def __init__(self, playlist_data : Dict[str, Any] ):
+  def __init__(self, playlist_data : Dict[str, Any], array_index : int ):
     super().__init__()
 
     self.setObjectName("PlaylistSelection")
@@ -141,6 +156,7 @@ class PlaylistSelection(QFrame):
     # Data
     self._data        : Dict[str, Any] = playlist_data
     self._id          : int            = self._data["id"]
+    self._index       : int            = array_index
     self._name        : str            = self._data["name"]
     self._description : str            = (self._data["description"] if len(self._data["description"]) <= 100 else self._data["description"][:97] + '...')
     self._image       : bytes # Maybe in the future, the ability to add a playlist image
@@ -243,8 +259,11 @@ class PlaylistSelection(QFrame):
 
   
   def _handle_play_btn_click(self):
-    self._selected_signal.emit(self._data) # Update UI to show playlist songs
-    self._play_signal.emit()               # Tell AudioManager to begin playing
+    print("Handling Play Button")
+    global_logger.debug(f"PlaylistSelectionElement handling click event")
+
+    self._selected_signal.emit(self._index) # Update UI to show playlist songs
+    self._play_signal.emit(self._index)     # Tell AudioManager to begin playing
     pass
 
   def _handle_other_options_btn(self):

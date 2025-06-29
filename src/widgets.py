@@ -27,6 +27,7 @@ from downloader import (DownloadTracker, YoutubeDownloader,  SpotifyDownloader, 
 import utility as util
 from typing import Dict, Any, Optional, Tuple, List
 import config
+from mylogger import global_logger
 from playlist import (PlayListContainer)
 from PlaylistSelectionList import PlaylistSelectionList
 
@@ -189,6 +190,7 @@ class MusicDownloadWidget(QWidget):
     self.downloader.update_output_dir(path)
 
 
+
 class AudioPlayer:
   def __init__(self):
     # Initialize the media playback stuff
@@ -225,19 +227,27 @@ class AudioPlayer:
 
 class UIContainer(QWidget):
 
-  _play_song_signal     = Signal(int, str) # Song ID and Song path
-  _update_songs_dir     = Signal(str)      # Directory where downloads should be placed
-  _new_songs_downloaded = Signal(str)      # Directory where to look for new songs
-  _request_songs_for_refresh = Signal(int) # Signal up to MainApplication to callback with songs table. Argument is playlist ID
-  _create_new_playlist_in_db = Signal()    # Signal up to MainApplication to create a new playlist.
+  _play_song_signal              = Signal(int, str) # Song ID and Song path
+  _play_specific_playlist_signal = Signal()         
+  _update_songs_dir              = Signal(str)      # Directory where downloads should be placed
+  _new_songs_downloaded          = Signal(str)      # Directory where to look for new songs
+  _request_songs_for_refresh     = Signal(dict)     # Signal up to MainApplication to callback with songs table.
+  _create_new_playlist_in_db     = Signal()         # Signal up to MainApplication to create a new playlist.
+  _update_db_with_new_song_in_playlist = Signal(int, int) # Signal up to MainApplication to join playlist ID and song ID in the joint table
+  _request_all_songs_to_add_to_playlist = Signal()  # Request every available song to add.
 
   
 
   def __init__(self, parent, list_of_playlists : List[Dict[str, Any]]):
+
     super().__init__()
+
+    global_logger.debug(f"Initialized UIContainer with {list_of_playlists}")
 
     # Loads selection of playlist to the user
     self._playlist_selection_list = PlaylistSelectionList(list_of_playlists)
+    self._playlist_selection_list._activate_playlist.connect(self._activate_playlist)
+    self._playlist_selection_list._play_specific_playlist.connect(self._handle_playing_playlist)
 
     self._search_bar = QLineEdit(placeholderText="Search for playlists... ")
     self._search_bar.textChanged.connect(self._playlist_selection_list._search_text_changed)
@@ -250,11 +260,13 @@ class UIContainer(QWidget):
     # Loads the container to display the songs in a certain playlist
     self._playlist_container = PlayListContainer()
     self._playlist_container._play_button_clicked.connect(self._play_song)
+    self._playlist_container._update_db_with_new_song_in_playlist.connect(self._update_db_with_new_song_in_playlist.emit)
+    self._playlist_container._request_every_song.connect(self._request_all_songs_to_add_to_playlist.emit)
 
     # Widget to facilitate downloading from yt/spotify
     self._music_downloader = MusicDownloadWidget()
     self._music_downloader.setMaximumWidth(100)
-    self._music_downloader.download_completed_signal.connect(self._refresh_playlist)
+    self._music_downloader.download_completed_signal.connect(self.send_out_download_dir_signal)
     self._music_downloader.update_output_dir(config.get_audio_download_dir())
 
     # Will be deteled, but I want to keep this, just so I would remember that I made it
@@ -262,13 +274,12 @@ class UIContainer(QWidget):
     self._set_audio_download_folder_btn.setText("Audio Location")
     self._set_audio_download_folder_btn.clicked.connect(self._update_audio_download_folder)
 
-
     self._update_songs_dir.connect(parent.update_songs_directory)
 
     # General layout
     layout = QHBoxLayout(self)
-    # 
-    self.playlist_selection_layout = QVBoxLayout()
+    
+    self.playlist_selection_layout        = QVBoxLayout()
     self.playlist_selection_search_layout = QHBoxLayout()
 
     self.playlist_selection_search_layout.addWidget(self._search_bar)
@@ -276,8 +287,6 @@ class UIContainer(QWidget):
 
     self.playlist_selection_layout.addLayout(self.playlist_selection_search_layout)
     self.playlist_selection_layout.addWidget(self._playlist_selection_list)
-
-
     
     layout.addWidget(self._music_downloader)
     layout.addLayout(self.playlist_selection_layout)
@@ -289,17 +298,22 @@ class UIContainer(QWidget):
 
   @Slot(str)
   def _play_song(self, song_id : int, song_path : str):
+    global_logger.debug(f"Emitting _play_song_signal from UIContainer with ID: {song_id} | PATH: {song_path}")
     self._play_song_signal.emit(song_id, song_path)
 
   
   def _toggle_off_songs(self, index_to_ignore : int = -1):
     self._playlist_container._toggle_off_every_element(index_to_ignore)
 
-  def _refresh_playlist(self):
+
+  def send_out_download_dir_signal(self):
     self._new_songs_downloaded.emit(self._music_downloader.downloader.output_dir)
 
+
   def refresh_playlist(self, songs : List[Dict[str, Any]]):
+    
     self._playlist_container.refresh_playlist_elements(songs)
+
 
   def _update_audio_download_folder(self):
     # Get dir through native WindowBox
@@ -309,16 +323,41 @@ class UIContainer(QWidget):
     self._music_downloader.update_output_dir(config.get_audio_download_dir())
     # Update directory where the database points
     self._update_songs_dir.emit(selected_dir)
-    # Refresh UI
-    self._refresh_playlist()
+    
+    self.send_out_download_dir_signal()
     pass
+
+
   
+  def _activate_playlist(self, playlist_index_in_arr : int):
+    global_logger.debug(f"UIContainer caught _activate_playlist with index: {playlist_index_in_arr}")
+
+    # This is called when a user clicks 'Play' on a PlaylistSelection
+    # I would much more prefer loading up things separately but alas
+    playlist = self._playlist_selection_list._selection_list[playlist_index_in_arr]
+    global_logger.debug(f"UIContainer is loading playlist {playlist._data}")
+
+    self._playlist_container._update_playlist_data(playlist._data)
+    self._request_songs_for_refresh.emit(playlist._data["id"])
+
 
   def handle_new_playlist(self, playlist_data : Dict[str, Any]):
+    global_logger.debug(f"UIContainer caught _play_specific_playlist with data: {playlist_data}")
+
     # This function is responsible for displaying the playlist in the selection screen
     self._playlist_selection_list.add_element(playlist_data)
     
     # AND making the new playlist the current "Active" one
-    self._request_songs_for_refresh.emit(playlist_data["id"])
+    self._request_songs_for_refresh.emit(playlist_data)
     pass
 
+
+  def _handle_playing_playlist(self, playlist_index_in_arr : int):
+    playlist = self._playlist_selection_list._selection_list[playlist_index_in_arr]
+    
+
+
+  def load_playlist_container(self, playlist_data : Dict[str, Any], songs : List[Dict[str, Any]]):
+    print("me me load")
+    self._playlist_container = PlayListContainer(playlist_data, songs)
+    self._playlist_container.refresh_playlist_elements()
