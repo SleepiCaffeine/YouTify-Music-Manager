@@ -234,7 +234,7 @@ class UIContainer(QWidget):
   _request_songs_for_refresh     = Signal(dict)     # Signal up to MainApplication to callback with songs table.
   _create_new_playlist_in_db     = Signal()         # Signal up to MainApplication to create a new playlist.
   _update_db_with_new_song_in_playlist = Signal(int, int) # Signal up to MainApplication to join playlist ID and song ID in the joint table
-  _request_all_songs_to_add_to_playlist = Signal()  # Request every available song to add.
+  _request_all_songs_to_add_to_playlist = Signal(int)  # Request every available song, that isn't already in the playlist to add. Playlist ID
 
   
 
@@ -261,7 +261,7 @@ class UIContainer(QWidget):
     self._playlist_container = PlayListContainer()
     self._playlist_container._play_button_clicked.connect(self._play_song)
     self._playlist_container._update_db_with_new_song_in_playlist.connect(self._update_db_with_new_song_in_playlist.emit)
-    self._playlist_container._request_every_song.connect(self._request_all_songs_to_add_to_playlist.emit)
+    self._playlist_container._request_every_song_not_in_playlist.connect(self._request_all_songs_to_add_to_playlist.emit)
 
     # Widget to facilitate downloading from yt/spotify
     self._music_downloader = MusicDownloadWidget()
@@ -292,6 +292,7 @@ class UIContainer(QWidget):
     layout.addLayout(self.playlist_selection_layout)
     layout.addWidget(self._playlist_container)
     
+    
 
     # layout.addWidget(self._refresh_btn)
     # layout.addWidget(self._set_audio_download_folder_btn)
@@ -311,9 +312,11 @@ class UIContainer(QWidget):
 
 
   def refresh_playlist(self, songs : List[Dict[str, Any]]):
-    
     self._playlist_container.refresh_playlist_elements(songs)
 
+
+  def send_all_songs_to_playlist_container_for_addSongWindow(self, all_songs : List[Dict[str, Any]]):
+    self._playlist_container._handle_add_song_clicked_callback(all_songs)
 
   def _update_audio_download_folder(self):
     # Get dir through native WindowBox
@@ -358,6 +361,6 @@ class UIContainer(QWidget):
 
 
   def load_playlist_container(self, playlist_data : Dict[str, Any], songs : List[Dict[str, Any]]):
-    print("me me load")
+
     self._playlist_container = PlayListContainer(playlist_data, songs)
     self._playlist_container.refresh_playlist_elements()

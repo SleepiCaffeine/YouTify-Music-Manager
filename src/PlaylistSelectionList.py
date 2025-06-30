@@ -184,10 +184,13 @@ class PlaylistSelection(QFrame):
     
     self._play_btn = QPushButton()
     self._play_btn.setText("Play")
+    self._play_btn.setMaximumSize(80, 25)
+
     self._play_btn.clicked.connect(self._handle_play_btn_click)
 
     self._other_options_btn = QPushButton()
     self._other_options_btn.setText("More")
+    self._other_options_btn.setMaximumSize(80, 25)
     self._other_options_btn.clicked.connect(self._handle_other_options_btn)
 
     self._button_layout = QHBoxLayout()

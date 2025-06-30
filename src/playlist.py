@@ -74,6 +74,9 @@ class SongSelection(QWidget):
 
     self._add_button = QPushButton()
     self._add_button.clicked.connect(self._handle_add_btn_clicked)
+    self._add_button.setText("Add Song")
+    self._add_button.setMaximumSize(80, 25)
+    layout.addWidget(self._add_button, 1, 1)
 
 
   def _handle_add_btn_clicked(self):
@@ -86,10 +89,11 @@ class SongSelection(QWidget):
 
 class AddSongWindow(QDialog):
 
-  _song_selected_signal = Signal(Dict[str, Any])
+  _song_selected_signal = Signal(dict)
 
   def __init__(self):
     super().__init__()
+    global_logger.debug("Created AddSongWindow")
 
     main_layout = QVBoxLayout(self)
     main_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -131,9 +135,12 @@ class AddSongWindow(QDialog):
 
 
   def add_element(self, song_data : Dict[str, Any]):
+    global_logger.debug(f"Added element in AddSongWindow: {song_data}")
+    
     song = SongSelection(song_id=song_data['id'], song_name=song_data['user_title'], song_length=song_data['duration'])
     song._selected_signal.connect(self._handle_add_song_signal)
     self._song_selections.append(song)
+    self._songs_layout.addWidget(song)
     self._songs_layout.update()
 
 
@@ -149,6 +156,8 @@ class AddSongWindow(QDialog):
     self.close()
 
   def _set_available_songs(self, songs : list[Dict[str, Any]] = []):
+    global_logger.debug(f"Set songs in AddSongWindow: {songs}")
+
     self._available_songs = songs
     for song in self._available_songs:
       self.add_element(song)
@@ -162,6 +171,7 @@ class PlayListContainer(QFrame):
   _play_button_clicked      = Signal(int, str)
   _request_every_song       = Signal()
   _update_db_with_new_song_in_playlist = Signal(int, int) # Playlist ID, Song ID
+  _request_every_song_not_in_playlist = Signal(int)
   
 
   def __init__(self, playlist_data : Dict[str, Any] = {}, songs_query : List[Dict[str, Any]] = []):
@@ -169,12 +179,13 @@ class PlayListContainer(QFrame):
 
     super().__init__()
 
-    general_layout = QVBoxLayout(self)
-    self.setStyleSheet(open(os.path.join(util.STYLE_LOCATION, 'PlaylistStyle.qss')).read())
+    self.general_layout = QVBoxLayout(self)
+    #self.setStyleSheet(open(os.path.join(util.STYLE_LOCATION, 'PlaylistStyle.qss')).read())
 
     self._current_index = 0
-    self._songs = songs_query
+    self._songs = []
     self._playlist_data = playlist_data
+    self._initialized = playlist_data != {} and songs_query != []
 
     # List of UI objects
     self._playlist : list[PlaylistElement] = []
@@ -224,26 +235,34 @@ class PlayListContainer(QFrame):
     self._buttons_layout.addWidget(self._more_options)
 
     self._header_layout.addLayout(self._title_layout)
-    self._header_layout.addLayout(self._buttons_layout)
+
+    if self._initialized:
+      self._header_layout.addLayout(self._buttons_layout)
 
 
     self.refresh_playlist_elements(self._songs)
     
-    general_layout.addLayout(self._header_layout)
-    general_layout.addWidget(self._search_bar)
-    general_layout.addSpacing(10)
-    general_layout.addLayout(self._playlist_layout)  
+    self.general_layout.addLayout(self._header_layout)
+    self.general_layout.addWidget(self._search_bar)
+    self.general_layout.addSpacing(10)
+    self.general_layout.addLayout(self._playlist_layout)  
+
+    self.setMaximumSize(600, 100)
+    self.setMinimumSize(400, 60)
 
   
 
   def _update_playlist_data(self, playlist_data : Dict[str, Any]):
     self._playlist_data = playlist_data
-    self._name.setText(playlist_data["name"])
+    self._initialized = True
+    self._name.setText(self._playlist_data["name"])
     self._desc.setText(self._playlist_data["description"])
+    self._header_layout.addLayout(self._buttons_layout)
 
 
   def handle_add_song_clicked(self):
-    self._request_every_song.emit()    
+    
+    self._request_every_song_not_in_playlist.emit(self._playlist_data['id'])    
 
 
   def _handle_add_song_clicked_callback(self, all_songs : List[Dict[str, Any]]):
@@ -251,11 +270,11 @@ class PlayListContainer(QFrame):
     add_song_window._set_available_songs(all_songs)
 
     add_song_window._song_selected_signal.connect(self._handle_add_song_song_data)
-    add_song_window.exec()
+    add_song_window.exec_()
   
 
   def _handle_add_song_song_data(self, song_data : Dict[str, Any]):
-    self._songs.append(song_data)
+    self.add_element(song_data)
     self._update_db_with_new_song_in_playlist.emit(self._playlist_data['id'], song_data['id'])
     
 
@@ -276,7 +295,7 @@ class PlayListContainer(QFrame):
     for song in self._songs:
       regex_match = re.match(text, song["user_title"])
       if regex_match is not None:
-        self.add_element(song)
+        self.add_layout_element(PlaylistElement(song))
 
   
 
@@ -287,13 +306,27 @@ class PlayListContainer(QFrame):
     return self._playlist[self._current_index]._song_path
   
 
+  def add_layout_element( self, new_element : PlaylistElement ):
+    self._playlist.append( new_element )
+    
+    self._playlist[-1]._play_clicked_signal.connect(self._play_button_clicked)
+    
+    self._playlist_layout.addWidget( self._playlist[-1] )
+    
+    self._playlist_layout.update()
+    self.general_layout.update()
+  
+
   def add_element(self, song : Dict[str, Any]):
     # TODO: Change this so it orders itself with the propper playlist positions in 'playlists' table
     global_logger.debug(f"Adding Element to PlaylistContainer: {song}")
-    self._playlist.append( PlaylistElement(song) )
-    self._playlist[-1]._play_clicked_signal.connect(self._play_button_clicked)
-    self._playlist_layout.addWidget( self._playlist[-1] )
-    self.update()
+    
+    self._songs.append(song)
+    self.add_layout_element(PlaylistElement(song))
+    
+
+    self.updateGeometry()
+
 
   # Whenever you start playing a different song, this function sends out a notification
   # To every  element, an example would be to toggle back the 'PLAY_ICON'

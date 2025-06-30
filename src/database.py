@@ -146,6 +146,24 @@ class DatabaseConnection:
     columns = [desc[0] for desc in cursor.description]
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
+  def get_songs_NOT_in_playlist_by_id(
+      self,
+      playlist_id : int
+  ) -> List[Dict[str, Any]]:
+    cursor = self.get_connection().cursor()
+    cursor.execute("""
+        SELECT s.*
+        FROM songs s
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM playlists_songs ps
+          WHERE ps.song_id = s.id
+          AND ps.playlist_id = ?
+        )
+      """, (playlist_id,))
+    columns = [desc[0] for desc in cursor.description]
+    return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
 
   def get_all_songs(self) -> List[Dict[str, Any]]:
     cursor = self.get_connection().cursor()

@@ -53,7 +53,7 @@ class MainApplication(QMainWindow):
         self._ui_container._request_songs_for_refresh.connect(self.send_playlist_songs_to_ui)
         self._ui_container._create_new_playlist_in_db.connect(self._create_new_playlist_in_db)
         self._ui_container._update_db_with_new_song_in_playlist.connect(self._add_new_song_to_playlist)
-
+        self._ui_container._request_all_songs_to_add_to_playlist.connect(self._send_all_songs_to_AddSongWindow)
 
         self.setCentralWidget(self._ui_container)
 
@@ -70,6 +70,12 @@ class MainApplication(QMainWindow):
         print(f"MAIN APP send_playlist_songs_to_ui: {songs}")
 
         self._ui_container.refresh_playlist(songs)
+
+    def _send_all_songs_to_AddSongWindow(self, playlist_id : int):
+        songs = self._db_connection.get_songs_NOT_in_playlist_by_id(playlist_id)
+        print(f"MAIN APP _send_all_songs_to_AddSongWindow: {songs}")
+        self._ui_container.send_all_songs_to_playlist_container_for_addSongWindow(songs)
+
 
     def update_with_new_songs(self, download_path : str):
         # At this point, new songs have been downloaded, but not yet added to the DB
