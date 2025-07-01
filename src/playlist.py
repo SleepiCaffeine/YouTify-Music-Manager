@@ -166,7 +166,7 @@ class AddSongWindow(QDialog):
 
 
 
-class PlayListContainer(QFrame):
+class PlayListContainer(QWidget):
 
   _play_button_clicked      = Signal(int, str)
   _request_every_song       = Signal()
@@ -180,7 +180,8 @@ class PlayListContainer(QFrame):
     super().__init__()
 
     self.general_layout = QVBoxLayout(self)
-    #self.setStyleSheet(open(os.path.join(util.STYLE_LOCATION, 'PlaylistStyle.qss')).read())
+    
+   # self.setStyleSheet(open(os.path.join(util.STYLE_LOCATION, 'PlaylistStyle.qss')).read())
 
     self._current_index = 0
     self._songs = []
@@ -235,20 +236,21 @@ class PlayListContainer(QFrame):
     self._buttons_layout.addWidget(self._more_options)
 
     self._header_layout.addLayout(self._title_layout)
+    self._header_layout.addLayout(self._buttons_layout)
+
+    self._playlist_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
     if self._initialized:
-      self._header_layout.addLayout(self._buttons_layout)
+      self.general_layout.addLayout(self._header_layout)
+      self.general_layout.addWidget(self._search_bar)
+      self.general_layout.addLayout(self._playlist_layout)
 
 
     self.refresh_playlist_elements(self._songs)
     
-    self.general_layout.addLayout(self._header_layout)
-    self.general_layout.addWidget(self._search_bar)
-    self.general_layout.addSpacing(10)
-    self.general_layout.addLayout(self._playlist_layout)  
-
-    self.setMaximumSize(600, 100)
-    self.setMinimumSize(400, 60)
+    
+    
+    self.setMinimumWidth(400)
 
   
 
@@ -257,7 +259,9 @@ class PlayListContainer(QFrame):
     self._initialized = True
     self._name.setText(self._playlist_data["name"])
     self._desc.setText(self._playlist_data["description"])
-    self._header_layout.addLayout(self._buttons_layout)
+    self.general_layout.addLayout(self._header_layout)
+    self.general_layout.addWidget(self._search_bar)
+    self.general_layout.addLayout(self._playlist_layout)
 
 
   def handle_add_song_clicked(self):
@@ -307,14 +311,18 @@ class PlayListContainer(QFrame):
   
 
   def add_layout_element( self, new_element : PlaylistElement ):
+
+     # Quick check if this is the text prompting to make a playlist is still there:
+    # Because if so - it needs to be deleted
+    if len(self._playlist) == 0:
+      self._delete_layout_elements()
+
+    new_element._play_clicked_signal.connect(self._play_button_clicked)
+    self._playlist_layout.addWidget( new_element )
     self._playlist.append( new_element )
+    self.update()
     
-    self._playlist[-1]._play_clicked_signal.connect(self._play_button_clicked)
     
-    self._playlist_layout.addWidget( self._playlist[-1] )
-    
-    self._playlist_layout.update()
-    self.general_layout.update()
   
 
   def add_element(self, song : Dict[str, Any]):

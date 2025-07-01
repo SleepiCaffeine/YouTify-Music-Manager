@@ -287,7 +287,7 @@ class UIContainer(QWidget):
 
     self.playlist_selection_layout.addLayout(self.playlist_selection_search_layout)
     self.playlist_selection_layout.addWidget(self._playlist_selection_list)
-    
+
     layout.addWidget(self._music_downloader)
     layout.addLayout(self.playlist_selection_layout)
     layout.addWidget(self._playlist_container)
