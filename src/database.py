@@ -343,7 +343,19 @@ class DatabaseConnection:
       except sqlite3.IntegrityError:
         self.get_connection().rollback()
         return False  # Duplicate song in playlist
-  
+
+  def remove_song_from_playlist(
+      self,
+      song_id : int,
+  ) -> bool:
+    with self._lock:
+      cursor = self.get_connection().cursor()
+      cursor.execute("DELETE FROM playlists_songs WHERE song_id = ?", (song_id,))
+      self.get_connection().commit()
+      
+      if cursor.lastrowid:
+        return cursor.lastrowid > 0
+      return False
 
   def delete_playlist(
     self,

@@ -195,11 +195,29 @@ class AudioPlayer:
   def __init__(self):
     # Initialize the media playback stuff
     self._audio_output = QAudioOutput()
+    self._audio_output.setProperty("bufferSize", 1024 * 1024)  # Set buffer size to 1MB, to prevent audio stuttering
     self._player       = QMediaPlayer()
     self._curr_path    : str = ""
     self._curr_song_id : int = 0
     self._player.setAudioOutput(self._audio_output)
       
+    self._debounce_timer = QTimer()
+    self._debounce_timer.setSingleShot(True)
+    self._debounce_timer.setInterval(500)  # Millisecond delay to prevent double clicks, and the audio resampler from failing
+        
+    # Add state tracking
+    self._is_transitioning = False
+    # Add playback state tracking
+    self._player.playbackStateChanged.connect(self._handle_playback_state_change)
+    self._current_state = QMediaPlayer.PlaybackState.StoppedState
+    self._waiting_for_state = False
+
+  def _handle_playback_state_change(self, state):
+    print(f"Playback state changed to: {state}")
+    self._current_state = state
+    self._waiting_for_state = False
+    self._is_transitioning = False
+
   @Slot()
   def set_source(self, song_id : int, path_to_song : str):
     print(f"setting id: {song_id}\npath: {path_to_song}")
@@ -210,18 +228,27 @@ class AudioPlayer:
 
   @Slot()
   def play_song(self):
-    print("play")
-    self._player.play()
-
-  @Slot()
+        if self._waiting_for_state or self._is_transitioning:
+            return
+        
+        self._waiting_for_state = True
+        self._is_transitioning = True
+        self._player.play()
+        
+  @Slot() 
   def pause_song(self):
-    print("pause")
-
-    self._player.pause()
+      if self._waiting_for_state or self._is_transitioning:
+          return
+          
+      self._waiting_for_state = True
+      self._is_transitioning = True
+      self._player.pause()
 
   @Slot()
   def _ensure_stopped(self):
     if self._player.playbackState() != QMediaPlayer.PlaybackState.StoppedState:
+      self._waiting_for_state = True
+      self._is_transitioning = True
       self._player.stop()
 
 
@@ -235,6 +262,7 @@ class UIContainer(QWidget):
   _create_new_playlist_in_db     = Signal()         # Signal up to MainApplication to create a new playlist.
   _update_db_with_new_song_in_playlist = Signal(int, int) # Signal up to MainApplication to join playlist ID and song ID in the joint table
   _request_all_songs_to_add_to_playlist = Signal(int)  # Request every available song, that isn't already in the playlist to add. Playlist ID
+  _remove_song_from_playlist_signal     = Signal(int) # Song ID to remove from the playlist
 
   
 
@@ -262,10 +290,11 @@ class UIContainer(QWidget):
     self._playlist_container._play_button_clicked.connect(self._play_song)
     self._playlist_container._update_db_with_new_song_in_playlist.connect(self._update_db_with_new_song_in_playlist.emit)
     self._playlist_container._request_every_song_not_in_playlist.connect(self._request_all_songs_to_add_to_playlist.emit)
+    self._playlist_container._delete_element_clicked_signal.connect(self._remove_song_from_playlist)
 
     # Widget to facilitate downloading from yt/spotify
     self._music_downloader = MusicDownloadWidget()
-    self._music_downloader.setMaximumWidth(100)
+    self._music_downloader.setMaximumWidth(150)
     self._music_downloader.download_completed_signal.connect(self.send_out_download_dir_signal)
     self._music_downloader.update_output_dir(config.get_audio_download_dir())
 
@@ -318,6 +347,12 @@ class UIContainer(QWidget):
   def send_all_songs_to_playlist_container_for_addSongWindow(self, all_songs : List[Dict[str, Any]]):
     self._playlist_container._handle_add_song_clicked_callback(all_songs)
 
+  def _remove_song_from_playlist(self, song_id : int):
+    global_logger.debug(f"UIContainer caught _remove_song_from_playlist with song ID: {song_id}")
+    # This is called when a user clicks 'Delete' on a song in the playlist
+    self._remove_song_from_playlist_signal.emit(song_id)
+    
+
   def _update_audio_download_folder(self):
     # Get dir through native WindowBox
     selected_dir = QFileDialog.getExistingDirectory()
@@ -341,7 +376,7 @@ class UIContainer(QWidget):
     global_logger.debug(f"UIContainer is loading playlist {playlist._data}")
 
     self._playlist_container._update_playlist_data(playlist._data)
-    self._request_songs_for_refresh.emit(playlist._data["id"])
+    self._request_songs_for_refresh.emit(playlist._data)
 
 
   def handle_new_playlist(self, playlist_data : Dict[str, Any]):

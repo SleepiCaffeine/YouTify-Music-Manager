@@ -173,6 +173,9 @@ class PlayListContainer(QWidget):
   _update_db_with_new_song_in_playlist = Signal(int, int) # Playlist ID, Song ID
   _request_every_song_not_in_playlist = Signal(int)
   
+  _delete_element_clicked_signal = Signal(int,  name="Delete Element Clicked")
+  _delete_playlist_clicked_signal = Signal(int, name="Delete Playlist Clicked")
+  
 
   def __init__(self, playlist_data : Dict[str, Any] = {}, songs_query : List[Dict[str, Any]] = []):
     
@@ -318,6 +321,7 @@ class PlayListContainer(QWidget):
       self._delete_layout_elements()
 
     new_element._play_clicked_signal.connect(self._play_button_clicked)
+    new_element._delete_clicked_signal.connect(self._delete_element)
     self._playlist_layout.addWidget( new_element )
     self._playlist.append( new_element )
     self.update()
@@ -335,6 +339,25 @@ class PlayListContainer(QWidget):
 
     self.updateGeometry()
 
+
+  def _delete_element(self, song_id : int):
+    global_logger.debug(f"Deleting element with ID: {song_id} from PlaylistContainer")
+    # Find the element with the ID
+    for i, element in enumerate(self._playlist):
+      if element._id == song_id:
+        # Remove it from the layout
+        self._playlist_layout.removeWidget(element)
+        # Remove it from the list
+        self._playlist.pop(i)
+        # Delete the element
+        element.deleteLater()
+        # Remove it from the songs list
+        self._songs = [s for s in self._songs if s['id'] != song_id]
+        # Emit a signal to delete it from the DB
+        self._delete_element_clicked_signal.emit(song_id)
+        return
+
+    pass
 
   # Whenever you start playing a different song, this function sends out a notification
   # To every  element, an example would be to toggle back the 'PLAY_ICON'
@@ -383,8 +406,9 @@ PAUSE_ICON = QIcon(util.ICON_LOCATION + 'PAUSE_ICON.svg')
 # Multiple playlist elements make up a Playlist UI
 class PlaylistElement(QFrame):
   
-  _clicked_signal      = Signal(int, name="Mouse Click")
-  _play_clicked_signal = Signal(int, str)
+  _clicked_signal        = Signal(int, name="Mouse Click")
+  _play_clicked_signal   = Signal(int, str)
+  _delete_clicked_signal = Signal(int, name="Delete Clicked")
   
   def __init__(self, song_data : Dict[str, Any] ):
     super().__init__()
@@ -452,12 +476,15 @@ class PlaylistElement(QFrame):
     self._play_btn.setIcon(PLAY_ICON)
     self._play_btn.setAutoFillBackground(False)
     self._play_btn.setObjectName("PlayButton")
-
-    self._remove_from_playlist_btn.setText("Remove")
-    self._other_options_btn.setText("More")
-
     self._play_btn.clicked.connect(self.on_play_btn_click)
 
+    self._remove_from_playlist_btn.setText("Remove")
+    self._remove_from_playlist_btn.setObjectName("RemoveButton")
+    self._remove_from_playlist_btn.clicked.connect(self.on_delete_btn_click)
+
+    self._other_options_btn.setText("More")
+
+    
     # Button Layout
     self._button_layout.addWidget(self._play_btn)
     self._button_layout.addWidget(self._remove_from_playlist_btn)
@@ -523,13 +550,7 @@ class PlaylistElement(QFrame):
     loaded_soundfile = sf.SoundFile(filepath)
     self._length_ms = int(1000 * (loaded_soundfile.frames / loaded_soundfile.samplerate))
     self._song_is_set = True
-
-      
-  def mouseMoveEvent(self, event: QMouseEvent):
-    # Change color here
-    # print(event)
-    # self.toggle_color()
-    pass
+  
 
 
   def toggle_off(self):
@@ -543,15 +564,19 @@ class PlaylistElement(QFrame):
       self._play_btn.setIcon(PAUSE_ICON)
     else:
       self._play_btn.setIcon(PLAY_ICON)
+    
     self._play_clicked_signal.emit(self._id, self._song_path)
   
+  @Slot()
+  def on_delete_btn_click(self):
+    global_logger.debug(f"PlaylistElement {self._id} delete button clicked")
+    self._delete_clicked_signal.emit(self._id)
+
   @Slot()
   def connect_play_button(self, function : Callable):
     self._play_clicked_signal.connect(function)
 
-  @Slot()
-  def connect_remove_from_playlist_button(self, function : Callable):
-    self._remove_from_playlist_btn.clicked.connect(function)
+  
 
   @Slot()
   def connect_other_options_button(self, function : Callable):

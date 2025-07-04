@@ -54,6 +54,7 @@ class MainApplication(QMainWindow):
         self._ui_container._create_new_playlist_in_db.connect(self._create_new_playlist_in_db)
         self._ui_container._update_db_with_new_song_in_playlist.connect(self._add_new_song_to_playlist)
         self._ui_container._request_all_songs_to_add_to_playlist.connect(self._send_all_songs_to_AddSongWindow)
+        self._ui_container._remove_song_from_playlist_signal.connect(self._db_connection.remove_song_from_playlist)
 
         self.setCentralWidget(self._ui_container)
 
